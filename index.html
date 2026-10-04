@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="bn">
+<head>
+<meta charset="utf-8">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Jarvis</title>
+<style>
+:root{box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);--bg:#f3f6fb;--fg:#0f1b2d;--card:#fff;--ac:#0a84ff;--mut:#6b7a90}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#060d18;--fg:#dff1ff;--card:#0e1b2e;--ac:#35c3ff;--mut:#7f95b0}}
+:root[data-theme="dark"]{--bg:#060d18;--fg:#dff1ff;--card:#0e1b2e;--ac:#35c3ff;--mut:#7f95b0}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);background-image:linear-gradient(rgba(53,195,255,.07) 1px,transparent 1px),linear-gradient(90deg,rgba(53,195,255,.07) 1px,transparent 1px);background-size:32px 32px;color:var(--fg);font-family:system-ui,-apple-system,"Noto Sans Bengali","Segoe UI",sans-serif;display:flex;flex-direction:column;align-items:center;min-height:100vh;padding:16px}
+h1{text-shadow:0 0 18px var(--ac);margin:8px 0 0;letter-spacing:.3em;font-weight:300}
+#st{color:var(--mut);margin:4px 0 16px;font-size:14px;text-align:center}
+#orb{width:min(72vw,300px);height:min(72vw,300px);cursor:pointer;position:relative;display:flex;align-items:center;justify-content:center;-webkit-tap-highlight-color:transparent}
+#c{width:100%;height:100%;position:absolute;inset:0}
+#fb{font-size:50px}
+.row{display:flex;gap:8px;margin:18px 0 10px}
+.row button{background:var(--card);color:var(--fg);border:1px solid var(--mut);border-radius:20px;padding:6px 14px}
+.row button.sel{background:var(--ac);color:#fff;border-color:var(--ac)}
+#log{width:100%;max-width:520px;flex:1;overflow-y:auto}
+.m{background:var(--card);border-radius:12px;padding:10px 12px;margin:6px 0;font-size:15px}
+.u{border-left:3px solid var(--mut)}.j{border-left:3px solid var(--ac)}
+#help{color:var(--mut);font-size:13px;max-width:520px;margin-top:8px}
+</style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+</head>
+<body>
+<h1>JARVIS</h1>
+<div id="st">মাইক চাপো, তারপর "জার্ভিস" বলে ডাকো</div>
+<div id="orb" role="button" aria-label="mic"><span id="fb">🎙</span><canvas id="c"></canvas></div>
+<div class="row"><button id="bn" class="sel">বাংলা</button><button id="en">English</button><button id="ww" class="sel">নাম ধরে ডাকা</button><button id="kb">🔑</button></div>
+<form id="tf" style="display:flex;gap:6px;width:100%;max-width:520px;margin-top:14px"><input id="ti" placeholder="এখানে লিখেও বলতে পারো..." style="flex:1;padding:10px;border-radius:12px;border:1px solid var(--mut);background:var(--card);color:var(--fg);font-size:16px"><button style="padding:10px 14px;border-radius:12px;border:0;background:var(--ac);color:#fff">পাঠাও</button></form>
+<div id="log"></div>
+<div id="help">মাইক অন করে বলো: "জার্ভিস, ইউটিউব খোলো" · "Jarvis, search cats" · "জার্ভিস, ১০ মিনিটের টাইমার দাও" · যেকোনো প্রশ্নও করতে পারো। পেজ খোলা ও স্ক্রিন চালু থাকলে সে সবসময় শুনবে।</div>
+<script>
+let lang='bn-BD',rec=null,want=false,speaking=false,awakeUntil=0,ww=true,sample=null,hist=[];
+const $=id=>document.getElementById(id),log=$('log'),st=$('st'),orb=$('orb');
+const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+const WAKE=/jarvis|জার্ভিস|জারভিস|জার্বিস|জারবিস|যার্ভিস/i;
+function add(t,c,url){const d=document.createElement('div');d.className='m '+c;d.textContent=t;
+ if(url){const a=document.createElement('a');a.href=url;a.target='_blank';a.rel='noopener';a.textContent=' 👉 খুলুন';a.style.color='var(--ac)';d.appendChild(a)}log.prepend(d)}
+function say(t){add(t,'j');try{speechSynthesis.cancel();const u=new SpeechSynthesisUtterance(t);u.lang=lang;speaking=true;
+ try{rec&&rec.stop()}catch(e){}
+ u.onend=u.onerror=()=>{speaking=false;listen()};speechSynthesis.speak(u);setTimeout(()=>{if(speaking){speaking=false;listen()}},9000)}catch(e){speaking=false}}
+function openUrl(url,label){add(label||url,'j',url);try{window.open(url,'_blank')}catch(e){}return 'opened (user may need to tap the link)'}
+const tools=[
+ {name:'open_url',description:'Open a website in a new tab',inputSchema:{type:'object',properties:{url:{type:'string'}},required:['url']},execute:i=>openUrl(i.url,i.url)},
+ {name:'web_search',description:'Google search',inputSchema:{type:'object',properties:{query:{type:'string'}},required:['query']},execute:i=>openUrl('https://www.google.com/search?q='+encodeURIComponent(i.query),'সার্চ: '+i.query)},
+ {name:'youtube_search',description:'Search or play on YouTube',inputSchema:{type:'object',properties:{query:{type:'string'}},required:['query']},execute:i=>openUrl('https://www.youtube.com/results?search_query='+encodeURIComponent(i.query),'ইউটিউব: '+i.query)},
+ {name:'maps',description:'Show a place or directions in Google Maps',inputSchema:{type:'object',properties:{place:{type:'string'}},required:['place']},execute:i=>openUrl('https://www.google.com/maps/search/'+encodeURIComponent(i.place),'ম্যাপ: '+i.place)},
+ {name:'whatsapp',description:'Open WhatsApp chat with a prefilled message. phone in international format digits only.',inputSchema:{type:'object',properties:{phone:{type:'string'},text:{type:'string'}},required:['text']},execute:i=>openUrl('https://wa.me/'+(i.phone||'').replace(/\D/g,'')+'?text='+encodeURIComponent(i.text),'WhatsApp মেসেজ')},
+ {name:'call',description:'Dial a phone number',inputSchema:{type:'object',properties:{phone:{type:'string'}},required:['phone']},execute:i=>openUrl('tel:'+i.phone,'কল: '+i.phone)},
+ {name:'set_timer',description:'Set a timer that announces when done',inputSchema:{type:'object',properties:{seconds:{type:'number'},label:{type:'string'}},required:['seconds']},execute:i=>{setTimeout(()=>say('টাইমার শেষ: '+(i.label||'')),i.seconds*1000);return 'timer set'}},
+ {name:'now',description:'Current date and time',inputSchema:{type:'object',properties:{}},execute:()=>new Date().toLocaleString(lang)}
+];
+const SYS='You are Jarvis, a voice assistant. Reply in the same language the user spoke (default Bengali). Keep replies to 1-2 short spoken sentences, no markdown or emojis. When the user wants an action (open site, search, YouTube, maps, WhatsApp message, call, timer), call the matching tool, then confirm briefly. You cannot control the phone beyond these tools; say so honestly if asked for more.';
+async function brain(text){
+ let k=localStorage.getItem('jk');
+ if(!k){k=prompt('Anthropic API key পেস্ট করো (sk-ant-...)');if(!k)return;k=k.trim();localStorage.setItem('jk',k)}
+ st.textContent='ভাবছি...';
+ try{
+  let msgs=[...hist.slice(-8),{role:'user',content:text}],out='';
+  for(let n=0;n<4;n++){
+   const r=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{'content-type':'application/json','x-api-key':k,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},body:JSON.stringify({model:'claude-sonnet-4-6',max_tokens:500,system:SYS,tools:tools.map(t=>({name:t.name,description:t.description,input_schema:t.inputSchema})),messages:msgs})});
+   const d=await r.json();
+   if(d.error){if(r.status===401)localStorage.removeItem('jk');throw new Error(d.error.message)}
+   msgs.push({role:'assistant',content:d.content});
+   const calls=d.content.filter(c=>c.type==='tool_use');
+   out=d.content.filter(c=>c.type==='text').map(c=>c.text).join(' ')||out;
+   if(!calls.length)break;
+   msgs.push({role:'user',content:calls.map(c=>({type:'tool_result',tool_use_id:c.id,content:String(tools.find(t=>t.name===c.name).execute(c.input))}))});
+  }
+  hist.push({role:'user',content:text},{role:'assistant',content:out||'ok'});hist=hist.slice(-8);
+  say(out||'ঠিক আছে');
+ }catch(e){say('সমস্যা: '+e.message)}
+}
+function onSpeech(t){
+ if(speaking)return;add(t,'u');
+ const now=Date.now();
+ if(!ww){brain(t);return}
+ if(WAKE.test(t)){const rest=t.replace(WAKE,'').replace(/^[\s,،.!?]+/,'').replace(/^(hey|hi|হে|ওহে)\s*/i,'').trim();
+  if(rest.length>1)brain(rest);else{awakeUntil=now+10000;say(lang==='bn-BD'?'জি বলুন':'Yes?')}return}
+ if(now<awakeUntil){awakeUntil=0;brain(t)}
+}
+function listen(){
+ if(!want||speaking||!SR)return;
+ rec=new SR();rec.lang=lang;rec.continuous=!/iPhone|iPad/.test(navigator.userAgent);rec.interimResults=false;
+ rec.onresult=e=>{for(let i=e.resultIndex;i<e.results.length;i++)if(e.results[i].isFinal)onSpeech(e.results[i][0].transcript)};
+ rec.onerror=e=>{if(e.error==='no-speech'||e.error==='aborted')return;st.textContent='মাইক সমস্যা: '+e.error+(e.error==='not-allowed'||e.error==='service-not-allowed'?' (এই পেজে মাইক বন্ধ, নিচে লিখে বলো)':'');if(e.error==='not-allowed'||e.error==='service-not-allowed'){want=false;orb.classList.remove('on')}};
+ rec.onend=()=>{if(want&&!speaking)setTimeout(listen,300)};
+ try{rec.start();orb.classList.add('on');st.textContent=ww?'শুনছি... "জার্ভিস" বলে ডাকো':'শুনছি... বলো'}catch(e){}
+}
+orb.onclick=()=>{
+ if(!SR){st.textContent='এই ব্রাউজারে মাইক চলে না, নিচে লিখে বলো';return}
+ want=!want;
+ if(want){try{speechSynthesis.speak(new SpeechSynthesisUtterance('Jarvis'))}catch(e){}listen()}
+ else{try{rec.stop()}catch(e){}orb.classList.remove('on');st.textContent='বন্ধ আছে। মাইক চাপো'}
+};
+function setLang(l){lang=l;$('bn').classList.toggle('sel',l==='bn-BD');$('en').classList.toggle('sel',l==='en-US');if(want){try{rec.stop()}catch(e){}}}
+$('bn').onclick=()=>setLang('bn-BD');$('en').onclick=()=>setLang('en-US');
+$('ww').onclick=()=>{ww=!ww;$('ww').classList.toggle('sel',ww);st.textContent=ww?'নাম ধরে ডাকলে সাড়া দেবে':'যা বলবে সবই কমান্ড হবে'};
+$('tf').onsubmit=e=>{e.preventDefault();const t=$('ti').value.trim();if(!t)return;$('ti').value='';add(t,'u');brain(t)};
+(function(){
+ if(!window.THREE)return;
+ const T=THREE,box=$('orb'),col=0x35c3ff;
+ const r=new T.WebGLRenderer({canvas:$('c'),alpha:true,antialias:true});
+ r.setPixelRatio(Math.min(devicePixelRatio||1,2));
+ const sc=new T.Scene(),cam=new T.PerspectiveCamera(45,1,.1,100);cam.position.z=6.5;
+ const shell=new T.Mesh(new T.IcosahedronGeometry(1.6,2),new T.MeshBasicMaterial({color:col,wireframe:true,transparent:true,opacity:.5}));sc.add(shell);
+ const core=new T.Mesh(new T.SphereGeometry(.7,32,32),new T.MeshBasicMaterial({color:0xbff0ff,transparent:true,opacity:.9}));sc.add(core);
+ const rings=[0,1,2].map(i=>{const m=new T.Mesh(new T.TorusGeometry(2.1+i*.3,.02,8,100),new T.MeshBasicMaterial({color:col,transparent:true,opacity:.8}));m.rotation.x=i*1.1;m.rotation.y=i*.7;sc.add(m);return m});
+ const n=300,pos=new Float32Array(n*3);
+ for(let i=0;i<n;i++){const a=Math.random()*6.28,b=Math.acos(2*Math.random()-1),d=2.7+Math.random()*1.1;pos[i*3]=d*Math.sin(b)*Math.cos(a);pos[i*3+1]=d*Math.sin(b)*Math.sin(a);pos[i*3+2]=d*Math.cos(b)}
+ const pg=new T.BufferGeometry();pg.setAttribute('position',new T.BufferAttribute(pos,3));
+ const pts=new T.Points(pg,new T.PointsMaterial({color:col,size:.045}));sc.add(pts);
+ function size(){const w=box.clientWidth;r.setSize(w,w,false)}
+ size();addEventListener('resize',size);
+ let t=0;
+ (function loop(){requestAnimationFrame(loop);t+=.016;
+  const live=orb.classList.contains('on'),k=speaking?2.4:live?1.4:.5;
+  shell.rotation.y+=.004*k;shell.rotation.x+=.002*k;pts.rotation.y-=.0015*k;
+  rings.forEach((m,i)=>{m.rotation.z+=(.006+i*.003)*k*(i%2?-1:1);m.rotation.x+=.002*k});
+  core.scale.setScalar(1+(speaking?.2*Math.sin(t*12):live?.08*Math.sin(t*4):.03*Math.sin(t*1.5)));
+  core.material.color.setHex(speaking?0xffd27a:0xbff0ff);
+  r.render(sc,cam)})();
+ $('fb').style.display='none';
+})();
+$('kb').onclick=()=>{const k=prompt('নতুন Anthropic API key দাও');if(k)localStorage.setItem('jk',k.trim())};
+</script>
+</body>
+</html>
